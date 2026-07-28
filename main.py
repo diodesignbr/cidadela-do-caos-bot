@@ -1,21 +1,9 @@
 import os
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-# Servidor Web Falso para o Render aceitar o plano Free
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot da Cidadela esta rodando!")
-
-def run_dummy_server():
-    port = int(os.getenv("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
-    
 import logging
 import random
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -33,15 +21,33 @@ from telegram.ext import (
 )
 
 # -------------------------------------------------------------------
-# CONFIGURAÇÃO E LOGS
+# CONFIGURAÇÃO DE SEGURANÇA E AMBIENTE
 # -------------------------------------------------------------------
-TOKEN = os.getenv('TELEGRAM_TOKEN', 'SEU_TOKEN_LOCAL_AQUI')  # <-- Insira seu token do @BotFather aqui
+# Busca o token das variáveis de ambiente do Render
+TOKEN = os.getenv('TELEGRAM_TOKEN', '')
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
+# -------------------------------------------------------------------
+# SERVIDOR WEB FALSO PARA COMPATIBILIDADE COM RENDER (WEB SERVICE FREE)
+# -------------------------------------------------------------------
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot da Cidadela do Caos esta rodando!")
+
+def run_dummy_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+# -------------------------------------------------------------------
+# ESTRUTURA DO JOGO
+# -------------------------------------------------------------------
 jogadores = {}
 
 LISTA_MAGIAS = [
@@ -58,9 +64,6 @@ TECLADO_PERMANENTE = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# -------------------------------------------------------------------
-# BASE DE DADOS DA HISTÓRIA
-# -------------------------------------------------------------------
 HISTORIA = {
     "intro_portoes": {
         "texto": (
@@ -199,13 +202,10 @@ TEXTO_INTRODUCAO = (
 )
 
 # -------------------------------------------------------------------
-# HELPER DE INTERFAZ DA SELEÇÃO DE MAGIAS
+# HELPER DA INTERFAZ DE SELEÇÃO DE MAGIAS
 # -------------------------------------------------------------------
-
 def gerar_menu_magias(p):
-    """Constrói os botões com [ ➖ ], [ Nome + Qtd ] e [ ➕ ] para cada magia."""
     keyboard = []
-    
     for magia in LISTA_MAGIAS:
         qtd = p['magias'].count(magia)
         row = [
@@ -215,7 +215,6 @@ def gerar_menu_magias(p):
         ]
         keyboard.append(row)
 
-    # Linha de Ações (Limpar e Iniciar)
     acoes = []
     if len(p['magias']) > 0:
         acoes.append(InlineKeyboardButton("🗑️ Limpar Grimório", callback_data="limpar_magias"))
@@ -236,11 +235,9 @@ def gerar_menu_magias(p):
     return texto, InlineKeyboardMarkup(keyboard)
 
 # -------------------------------------------------------------------
-# COMANDOS E FLUXO PRINCIPAL
+# HANDLERS
 # -------------------------------------------------------------------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inicia a apresentação e criação do personagem."""
     user_id = update.effective_user.id
     
     jogadores[user_id] = {
@@ -271,7 +268,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gerencia cliques nos botões da seleção de magias e aventura."""
     query = update.callback_query
     user_id = update.effective_user.id
     data = query.data
@@ -282,7 +278,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     p = jogadores[user_id]
 
-    # 1. ROLAGEM DE ATRIBUTOS
     if data == 'menu_gerar_personagem':
         await query.answer()
         hab = random.randint(1, 6) + 6
@@ -294,7 +289,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         p["energia_max"] = p["energia"] = ene
         p["sorte_max"] = p["sorte"] = sor
         p["magia_max"] = p["magia"] = mag
-        p["magias"].clear() # Limpa magias caso esteja rerrolando
+        p["magias"].clear()
 
         texto_atributos = (
             "🎲 *SEUS ATRIBUTOS FORAM SORTEADOS!*\n\n"
@@ -313,14 +308,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(texto_atributos, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-    # 2. ABRIR MENU DE MAGIAS
     if data == 'menu_escolher_magias':
         await query.answer()
         texto, markup = gerar_menu_magias(p)
         await query.edit_message_text(texto, reply_markup=markup, parse_mode='Markdown')
         return
 
-    # 3. ADICIONAR MAGIA ( ➕ )
     if data.startswith('add_magia:'):
         magia_nome = data.split(':')[1]
         if len(p['magias']) < p['magia_max']:
@@ -335,7 +328,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ Limite de pontos de magia atingido!", show_alert=True)
         return
 
-    # 4. REMOVER MAGIA ( ➖ )
     if data.startswith('remove_magia:'):
         magia_nome = data.split(':')[1]
         if magia_nome in p['magias']:
@@ -350,14 +342,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Você não possui esta magia no grimório.")
         return
 
-    # 5. INFO MAGIA (CLIQUE NO NOME)
     if data.startswith('info_magia:'):
         magia_nome = data.split(':')[1]
         qtd = p['magias'].count(magia_nome)
         await query.answer(f"{magia_nome}: {qtd} unidade(s) selecionada(s).")
         return
 
-    # 6. LIMPAR GRIMÓRIO
     if data == 'limpar_magias':
         p['magias'].clear()
         await query.answer("Grimório limpo!")
@@ -365,7 +355,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(texto, reply_markup=markup, parse_mode='Markdown')
         return
 
-    # 7. INICIAR E NAVEGAR NA HISTÓRIA
     if data.startswith('node:'):
         await query.answer()
         p['criado'] = True
@@ -385,12 +374,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
 
-# -------------------------------------------------------------------
-# MANIPULADOR DO TECLADO PERMANENTE (RODAPÉ)
-# -------------------------------------------------------------------
-
 async def menu_permanente_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Responde aos botões fixos no rodapé."""
     user_id = update.effective_user.id
     texto_botao = update.message.text
 
@@ -420,7 +404,6 @@ async def menu_permanente_handler(update: Update, context: ContextTypes.DEFAULT_
 
     elif texto_botao == "🪄 Grimório":
         if p['magias']:
-            # Agrupa e conta as magias para exibição organizada
             magias_unicas = set(p['magias'])
             linhas = [f"• {magia} (x{p['magias'].count(magia)})" for magia in magias_unicas]
             magias_str = "\n".join(linhas)
@@ -443,18 +426,15 @@ async def menu_permanente_handler(update: Update, context: ContextTypes.DEFAULT_
 # INICIALIZAÇÃO
 # -------------------------------------------------------------------
 if __name__ == '__main__':
+    # 1. Inicia o servidor web falso em segundo plano para o Render aceitar
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+
+    # 2. Inicia a aplicação do Telegram Bot
     app = ApplicationBuilder().token(TOKEN).build()
     
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_permanente_handler))
     
-    print("🏰 Bot de A Cidadela do Caos iniciado com seleção avançada de magias!")
-
-if __name__ == '__main__':
-    # Inicia o servidor falso em segundo plano
-    threading.Thread(target=run_dummy_server, daemon=True).start()
-    
-    app = ApplicationBuilder().token(TOKEN).build()
-    # ... restando dos handlers ...
+    print("🏰 Bot de A Cidadela do Caos rodando no Render com sucesso!")
     app.run_polling()
