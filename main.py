@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import logging
 import random
@@ -21,9 +22,8 @@ from telegram.ext import (
 )
 
 # -------------------------------------------------------------------
-# CONFIGURAÇÃO DE SEGURANÇA E AMBIENTE
+# CONFIGURAÇÃO DE SEGURANÇA E LOGS
 # -------------------------------------------------------------------
-# Busca o token das variáveis de ambiente do Render
 TOKEN = os.getenv('TELEGRAM_TOKEN', '')
 
 logging.basicConfig(
@@ -32,7 +32,20 @@ logging.basicConfig(
 )
 
 # -------------------------------------------------------------------
-# SERVIDOR WEB FALSO PARA COMPATIBILIDADE COM RENDER (WEB SERVICE FREE)
+# CARREGAMENTO DO LIVRO A PARTIR DO JSON EXTERNO
+# -------------------------------------------------------------------
+def carregar_historia():
+    try:
+        with open('historia.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Erro ao carregar o arquivo historia.json: {e}")
+        return {}
+
+HISTORIA = carregar_historia()
+
+# -------------------------------------------------------------------
+# SERVIDOR WEB FALSO PARA RENDER
 # -------------------------------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -46,7 +59,7 @@ def run_dummy_server():
     server.serve_forever()
 
 # -------------------------------------------------------------------
-# ESTRUTURA DO JOGO
+# ESTADO DOS JOGADORES E CONFIGURAÇÕES
 # -------------------------------------------------------------------
 jogadores = {}
 
@@ -64,137 +77,9 @@ TECLADO_PERMANENTE = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-HISTORIA = {
-    "intro_portoes": {
-        "texto": (
-            "🏰 *OS PORTÕES DA CIDADELA DO CAOS*\n\n"
-            "A noite está escura e fria. Diante de você ergue-se a sombria Cidadela do Caos, "
-            "fortaleza do vilão Balthus Dire. Dois guardas bizarros protegem a entrada principal: "
-            "um deles possui cabeça de cachorro e corpo de macaco, e o outro, cabeça de macaco e corpo de cachorro.\n\n"
-            "O que você deseja fazer?"
-        ),
-        "opcoes": [
-            {"texto": "🌿 Fingir ser um especialista em plantas", "next": "disfarce_plantas"},
-            {"texto": "📦 Fingir ser um comerciante viajante", "next": "disfarce_comerciante"},
-            {"texto": "🥶 Pedir abrigo contra a noite fria", "next": "pedir_abrigo"},
-            {"texto": "🪄 Usar uma Magia para passar", "next": "usar_magia_portao"},
-            {"texto": "⚔️ Atacar os guardas imediatamente", "next": "combate_guardas"}
-        ]
-    },
-    
-    "disfarce_plantas": {
-        "texto": (
-            "🌿 *O DISFARCE DE BOTÂNICO*\n\n"
-            "Você se aproxima com calma e afirma que veio coletar ervas raras nas colinas próximas. "
-            "Os guardas olham para você com desconfiança. O guarda com cabeça de cachorro rosnando exige "
-            "ver o que você traz na bolsa."
-        ),
-        "opcoes": [
-            {"texto": "🧪 Mostrar uma poção do seu inventário", "next": "entrar_patio_interno"},
-            {"texto": "🏃 Tentar correr para o interior do pátio", "next": "entrar_patio_interno"},
-            {"texto": "⚔️ Sacar a espada e lutar", "next": "combate_guardas"}
-        ]
-    },
-
-    "disfarce_comerciante": {
-        "texto": (
-            "📦 *O FALSO COMERCIANTE*\n\n"
-            "Você diz aos guardas que traz suprimentos valiosos para o Mestre Balthus Dire. "
-            "Um dos guardas gargalha com um som gutural e exige um suborno para liberar sua passagem."
-        ),
-        "opcoes": [
-            {"texto": "💰 Entregar 5 moedas de ouro", "next": "entrar_patio_interno"},
-            {"texto": "🪄 Lançar a Magia da Ilusão", "next": "magia_levitacao"},
-            {"texto": "⚔️ Recusar e atacar", "next": "combate_guardas"}
-        ]
-    },
-
-    "pedir_abrigo": {
-        "texto": (
-            "🥶 *O PEDIDO DE ABRIGO*\n\n"
-            "Você pede humildemente um refúgio da tempestade. Os guardas riram da sua cara e "
-            "apontam suas lanças ameaçadoramente em direção ao seu peito."
-        ),
-        "opcoes": [
-            {"texto": "🛡️ Lançar a Magia do Escudo", "next": "entrar_patio_interno"},
-            {"texto": "⚔️ Defender-se com a espada", "next": "combate_guardas"}
-        ]
-    },
-
-    "usar_magia_portao": {
-        "texto": (
-            "🪄 *ESCOLHA DE MAGIA*\n\n"
-            "Qual feitiço você deseja conjurar para superar os guardas?"
-        ),
-        "opcoes": [
-            {"texto": "🕊️ Levitação (Voar por cima do portão)", "next": "magia_levitacao"},
-            {"texto": "🔇 Silêncio (Passar sorrateiramente)", "next": "entrar_patio_interno"},
-            {"texto": "🔥 Fogo (Atacar com uma bola de fogo)", "next": "combate_guardas"}
-        ]
-    },
-
-    "magia_levitacao": {
-        "texto": (
-            "🕊️ *ELEVAÇÃO NOS CÉUS*\n\n"
-            "Você murmura as palavras místicas e seu corpo flutua suavemente acima da cabeça dos guardas surpresos. "
-            "Você pousa em segurança dentro do Pátio Interno da Cidadela sem disparar nenhum alarme!"
-        ),
-        "opcoes": [
-            {"texto": "🏰 Avançar para o Pátio Interno", "next": "entrar_patio_interno"}
-        ]
-    },
-
-    "entrar_patio_interno": {
-        "texto": (
-            "🏰 *O PÁTIO INTERNO*\n\n"
-            "Você conseguiu entrar na Cidadela! O pátio está escuro. À sua esquerda há uma porta de carvalho reforçada "
-            "com ferro. À sua direita, uma escadaria de pedra desce em direção às masmorras subterrâneas."
-        ),
-        "opcoes": [
-            {"texto": "🚪 Entrar pela porta de carvalho", "next": "porta_carvalho"},
-            {"texto": "🗡️ Descender às masmorras", "next": "masmorras"}
-        ]
-    },
-
-    "combate_guardas": {
-        "texto": (
-            "⚔️ *EM COMBATE!*\n\n"
-            "Você saca sua espada contra os dois guardas do portão!\n"
-            "• *Inimigo:* Guardas do Portão (Habilidade: 7 | Energia: 8)\n\n"
-            "Você desfere golpes certeiros e derrota os guardas com maestria, mas o barulho da luta "
-            "pode ter alertado outros servos no pátio!"
-        ),
-        "opcoes": [
-            {"texto": "🏃 Entrar rapidamente no Pátio Interno", "next": "entrar_patio_interno"}
-        ]
-    },
-
-    "porta_carvalho": {
-        "texto": (
-            "🚪 *A SALA DE GUARDA*\n\n"
-            "Você abre a porta suavemente e encontra um Goblin dormindo profundamente ao lado de uma mesa repleta de comida e um baú trancado."
-        ),
-        "opcoes": [
-            {"texto": "🔑 Tentar roubar a chave no cinto do Goblin", "next": "entrar_patio_interno"},
-            {"texto": "📦 Tentar arrombar o baú silenciosamente", "next": "entrar_patio_interno"},
-            {"texto": "🚶 Sair e ir em direção às masmorras", "next": "masmorras"}
-        ]
-    },
-
-    "masmorras": {
-        "texto": (
-            "🗡️ *AS MASMORRAS SOMBRIAS*\n\n"
-            "O ar é gélido e úmido. Ao longe você ouve o som de correntes se arrastando..."
-        ),
-        "opcoes": [
-            {"texto": "🔄 Voltar ao Pátio Interno", "next": "entrar_patio_interno"}
-        ]
-    }
-}
-
 TEXTO_INTRODUCAO = (
     "📖 *A CIDADELA DO CAOS — INTRODUÇÃO*\n\n"
-    "Nas profundezas da insalubre *Floresta dos Desesperados*, ergue-se uma fortaleza aterradora: "
+    "Nas profundezas da insalubre *Floresta dos Desesperados*, ergue-se uma fortress aterradora: "
     "a **Cidadela do Caos**. Dali, o tirano e feiticeiro **Balthus Dire** orquestra a conquista do pacífico Vale dos Vales.\n\n"
     "Como o mais talentoso discípulo da **Grande Ordem dos Magos**, uma missão solitária foi confiada a você: "
     "infiltrar-se na Cidadela do Caos, superar seus servos e armadilhas místicas, e **destruir Balthus Dire**!\n\n"
@@ -202,7 +87,7 @@ TEXTO_INTRODUCAO = (
 )
 
 # -------------------------------------------------------------------
-# HELPER DA INTERFAZ DE SELEÇÃO DE MAGIAS
+# HELPER DA INTERFACE DE SELEÇÃO DE MAGIAS
 # -------------------------------------------------------------------
 def gerar_menu_magias(p):
     keyboard = []
@@ -219,7 +104,7 @@ def gerar_menu_magias(p):
     if len(p['magias']) > 0:
         acoes.append(InlineKeyboardButton("🗑️ Limpar Grimório", callback_data="limpar_magias"))
     
-    acoes.append(InlineKeyboardButton("🚀 Iniciar Aventura!", callback_data="node:intro_portoes"))
+    acoes.append(InlineKeyboardButton("🚀 Iniciar Aventura!", callback_data="node:1"))
     keyboard.append(acoes)
 
     pontos_restantes = p['magia_max'] - len(p['magias'])
@@ -235,7 +120,7 @@ def gerar_menu_magias(p):
     return texto, InlineKeyboardMarkup(keyboard)
 
 # -------------------------------------------------------------------
-# HANDLERS
+# HANDLERS DO TELEGRAM
 # -------------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -360,9 +245,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         p['criado'] = True
         node_id = data.split(':')[1]
 
-        if node_id in HISTORIA:
+        # Recarrega ou consulta a história do JSON
+        historia_atual = carregar_historia()
+        if node_id in historia_atual:
             p['node_atual'] = node_id
-            node = HISTORIA[node_id]
+            node = historia_atual[node_id]
             
             keyboard = []
             for opt in node['opcoes']:
@@ -426,15 +313,13 @@ async def menu_permanente_handler(update: Update, context: ContextTypes.DEFAULT_
 # INICIALIZAÇÃO
 # -------------------------------------------------------------------
 if __name__ == '__main__':
-    # 1. Inicia o servidor web falso em segundo plano para o Render aceitar
     threading.Thread(target=run_dummy_server, daemon=True).start()
 
-    # 2. Inicia a aplicação do Telegram Bot
     app = ApplicationBuilder().token(TOKEN).build()
     
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_permanente_handler))
     
-    print("🏰 Bot de A Cidadela do Caos rodando no Render com sucesso!")
+    print("🏰 Bot iniciado e lendo historia.json!")
     app.run_polling()
