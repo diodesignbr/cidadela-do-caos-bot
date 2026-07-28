@@ -450,7 +450,8 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_permanente_handler))
     
     print("🏰 Bot de A Cidadela do Caos iniciado com seleção avançada de magias!")
-    if __name__ == '__main__':
+
+if __name__ == '__main__':
     # Inicia o servidor falso em segundo plano
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
